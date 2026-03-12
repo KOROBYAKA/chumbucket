@@ -8,7 +8,6 @@ def create_pubkeys(nodes):
     keypair_path.mkdir(exist_ok=True)
 
     pubkeys = []
-
     for i in range(0,nodes):
         save_path = keypair_path / f"{i}.json"
         #Generating Solana keypair
@@ -27,6 +26,5 @@ def create_pubkeys(nodes):
                 shutil.move(save_path, str(keypair_path / f"{pubkey}.json"))
 
     shutil.rmtree(keypair_path, ignore_errors=True)
-    keypair_path.rmdir()
 
     return pubkeys
