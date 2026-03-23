@@ -2,8 +2,8 @@ import subprocess
 from pathlib import Path
 import shutil
 
-def create_pubkeys(nodes):
-    keypair_path = Path("pubkeys_solana")
+def create_pubkeys(nodes, id):
+    keypair_path = Path(f"pubkeys_solana_{id}")
     shutil.rmtree(keypair_path, ignore_errors=True)
     keypair_path.mkdir(exist_ok=True)
 

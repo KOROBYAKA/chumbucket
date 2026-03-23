@@ -1,6 +1,4 @@
 import algorithms as algs
-import hashlib
-import random
 
 ALG_MAP = {
     "random": algs.select_root_random,
