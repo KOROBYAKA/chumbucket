@@ -29,112 +29,81 @@ def load_results_jsonl(path: str) -> list[dict]:
     return results
 
 
-def aggregate_by_bastard_percentage(results: list[dict]) -> list[dict]:
-    grouped = defaultdict(lambda: {
+def aggregate(results: list[dict]) -> dict[int, list[dict]]:
+    grouped = defaultdict(lambda: defaultdict(lambda: {
         "success_values": [],
         "failed_values": [],
         "failed_batches_percent_values": [],
         "simulations_count": 0,
-        "batch_sizes": [],
-        "empty_buckets": [],
-        "algs": set(),
-    })
+    }))
 
     for sim in results:
         bp = sim["bastard_percentage"]
+        buckets = sim.get("buckets")
+        batch_size = sim.get("batch_size")
         success_shreds = sim.get("success_shreds", [])
         failed_shreds = sim.get("failed_shreds", [])
-        batch_size = sim.get("batch_size")
-        buckets = sim.get("buckets")
-
-        if not isinstance(success_shreds, list):
-            raise ValueError(
-                f"success_shreds must be a list for bastard_percentage={bp}"
-            )
-
-        if not isinstance(failed_shreds, list):
-            raise ValueError(
-                f"failed_shreds must be a list for bastard_percentage={bp}"
-            )
 
         if not isinstance(batch_size, int) or batch_size <= 0:
-            raise ValueError(
-                f"batch_size must be a positive int for bastard_percentage={bp}"
-            )
+            raise ValueError(f"batch_size must be a positive int for bastard_percentage={bp}")
 
         if not isinstance(buckets, int) or buckets <= 0:
-            raise ValueError(
-                f"buckets must be a positive int for bastard_percentage={bp}"
-            )
+            raise ValueError(f"buckets must be a positive int for bastard_percentage={bp}")
 
-        # A batch is failed_shreds > batch_size / 2
-        failed_batches_count = sum(1 for x in failed_shreds if x > batch_size / 2)
+        failed_batches_count = sum(1 for x in failed_shreds if x > (batch_size / 2))
         failed_batches_percent = (failed_batches_count / buckets) * 100
 
-        grouped[bp]["success_values"].extend(success_shreds)
-        grouped[bp]["failed_values"].extend(failed_shreds)
-        grouped[bp]["failed_batches_percent_values"].append(failed_batches_percent)
-        grouped[bp]["simulations_count"] += 1
+        g = grouped[bp][buckets]
+        g["success_values"].extend(success_shreds)
+        g["failed_values"].extend(failed_shreds)
+        g["failed_batches_percent_values"].append(failed_batches_percent)
+        g["simulations_count"] += 1
 
-        if "batch_size" in sim:
-            grouped[bp]["batch_sizes"].append(sim["batch_size"])
+    result = {}
+    for bp in sorted(grouped.keys()):
+        rows = []
+        for buckets in sorted(grouped[bp].keys()):
+            data = grouped[bp][buckets]
+            sv = data["success_values"]
+            fv = data["failed_values"]
+            fbpv = data["failed_batches_percent_values"]
+            rows.append({
+                "buckets": buckets,
+                "success_shreds_avg": statistics.mean(sv) if sv else 0,
+                "success_shreds_median": statistics.median(sv) if sv else 0,
+                "failed_shreds_avg": statistics.mean(fv) if fv else 0,
+                "failed_shreds_median": statistics.median(fv) if fv else 0,
+                "failed_batches_percent_avg": statistics.mean(fbpv) if fbpv else 0,
+                "simulations_count": data["simulations_count"],
+            })
+        result[bp] = rows
 
-        if "empty_buckets" in sim:
-            grouped[bp]["empty_buckets"].append(sim["empty_buckets"])
-
-        grouped[bp]["algs"].add(sim.get("alg", "unknown"))
-
-    aggregated = []
-
-    for bp, data in grouped.items():
-        success_values = data["success_values"]
-        failed_values = data["failed_values"]
-        failed_batches_percent_values = data["failed_batches_percent_values"]
-
-        aggregated.append({
-            "bastard_percentage": bp,
-            "success_shreds_avg": statistics.mean(success_values) if success_values else 0,
-            "success_shreds_median": statistics.median(success_values) if success_values else 0,
-            "failed_shreds_avg": statistics.mean(failed_values) if failed_values else 0,
-            "failed_shreds_median": statistics.median(failed_values) if failed_values else 0,
-            "failed_batches_percent_avg": (
-                statistics.mean(failed_batches_percent_values)
-                if failed_batches_percent_values else 0
-            ),
-            "simulations_count": data["simulations_count"],
-            "batch_size_avg": statistics.mean(data["batch_sizes"]) if data["batch_sizes"] else 0,
-            "empty_buckets_avg": statistics.mean(data["empty_buckets"]) if data["empty_buckets"] else 0,
-            "algs": sorted(data["algs"]),
-        })
-
-    aggregated.sort(key=lambda x: x["bastard_percentage"])
-    return aggregated
+    return result
 
 
-def print_table(aggregated: list[dict]) -> None:
-    for row in aggregated:
-        print(
-            f"bastard_percentage={row['bastard_percentage']:>3} | "
-            f"success_avg={row['success_shreds_avg']:.2f} | "
-            f"success_median={row['success_shreds_median']:.2f} | "
-            f"failed_avg={row['failed_shreds_avg']:.2f} | "
-            f"failed_median={row['failed_shreds_median']:.2f} | "
-            f"failed_batches_avg_percent={row['failed_batches_percent_avg']:.2f}% | "
-            f"simulations={row['simulations_count']} | "
-            f"algs={','.join(row['algs'])}"
-        )
+def print_table(aggregated: dict[int, list[dict]]) -> None:
+    for bp, rows in aggregated.items():
+        print(f"\n--- bastard_percentage={bp}% ---")
+        for row in rows:
+            print(
+                f"  buckets={row['buckets']:>3} | "
+                f"success_avg={row['success_shreds_avg']:.2f} | "
+                f"success_median={row['success_shreds_median']:.2f} | "
+                f"failed_avg={row['failed_shreds_avg']:.2f} | "
+                f"failed_median={row['failed_shreds_median']:.2f} | "
+                f"failed_batches_avg_percent={row['failed_batches_percent_avg']:.2f}% | "
+                f"simulations={row['simulations_count']}"
+            )
 
 
-def plot_stats(aggregated: list[dict]) -> None:
-    x = [item["bastard_percentage"] for item in aggregated]
+def plot_for_bp(bp: int, rows: list[dict]) -> None:
+    x = [row["buckets"] for row in rows]
 
-    success_avg = [item["success_shreds_avg"] for item in aggregated]
-    success_median = [item["success_shreds_median"] for item in aggregated]
-    failed_avg = [item["failed_shreds_avg"] for item in aggregated]
-    failed_median = [item["failed_shreds_median"] for item in aggregated]
-    failed_batches_percent_avg = [
-        item["failed_batches_percent_avg"] for item in aggregated
-    ]
+    success_avg = [row["success_shreds_avg"] for row in rows]
+    success_median = [row["success_shreds_median"] for row in rows]
+    failed_avg = [row["failed_shreds_avg"] for row in rows]
+    failed_median = [row["failed_shreds_median"] for row in rows]
+    failed_batches_percent_avg = [row["failed_batches_percent_avg"] for row in rows]
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
@@ -142,33 +111,33 @@ def plot_stats(aggregated: list[dict]) -> None:
     axes[0].plot(x, success_median, marker="o", label="success_shreds_median")
     axes[0].plot(x, failed_avg, marker="o", label="failed_shreds_avg")
     axes[0].plot(x, failed_median, marker="o", label="failed_shreds_median")
-    axes[0].set_ylabel("value")
-    axes[0].set_title("Simulation statistics grouped by bastard_percentage")
+    axes[0].set_ylabel("shreds")
+    axes[0].set_title(f"Simulation statistics — bastard_percentage={bp}%")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    axes[1].plot(
-        x,
-        failed_batches_percent_avg,
-        marker="o",
-        label="failed_batches_avg_percent"
-    )
-    axes[1].set_xlabel("bastard_percentage")
-    axes[1].set_ylabel("failed_batches, %")
-    axes[1].set_title("Average failed batches percentage by bastard_percentage")
+    axes[1].plot(x, failed_batches_percent_avg, marker="o", label="failed_batches_avg_percent")
+    axes[1].set_xlabel("buckets")
+    axes[1].set_ylabel("failed batches, %")
+    axes[1].set_title(f"Average failed batches percentage — bastard_percentage={bp}%")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
 
     plt.tight_layout()
-    plt.show()
+    filename = f"plot_bp_{bp}.png"
+    plt.savefig(filename, dpi=150)
+    plt.close(fig)
+    print(f"Saved {filename}")
 
 
 def main() -> None:
     results = load_results_jsonl("results.jsonl")
-    aggregated = aggregate_by_bastard_percentage(results)
+    aggregated = aggregate(results)
 
     print_table(aggregated)
-    plot_stats(aggregated)
+
+    for bp, rows in aggregated.items():
+        plot_for_bp(bp, rows)
 
 
 if __name__ == "__main__":

@@ -53,8 +53,6 @@ def main():
                 bucket.id = i
                 buckets.append(bucket)
 
-            print(f"buckets_len: {len(buckets)}")
-
             for bucket in buckets:
                 if len(bucket.nodes) == 0:
                     empty_buckets += 1
